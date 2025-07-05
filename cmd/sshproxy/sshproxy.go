@@ -17,6 +17,7 @@ const (
 	IDEVSCode   = "code"
 	IDECursor   = "cursor"
 	IDEWindsurf = "windsurf"
+	IDEZed      = "zed"
 )
 
 type Options struct {
@@ -80,7 +81,7 @@ func NewCommand(cli labcli.CLI) *cobra.Command {
 		&opts.IDE,
 		"ide",
 		"",
-		`Open the playground in the IDE by specifying the IDE name (supported: "code", "cursor", "windsurf")`,
+		`Open the playground in the IDE by specifying the IDE name (supported: "code", "cursor", "windsurf", "zed")`,
 	)
 	flags.BoolVarP(
 		&opts.Quiet,
@@ -189,6 +190,26 @@ func RunSSHProxy(ctx context.Context, cli labcli.CLI, opts *Options) error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("couldn't open the IDE: %w", err)
 		}
+	} else if opts.IDE == IDEZed {
+		cli.PrintAux("Opening the playground in Zed...\n")
+
+		// Hack: SSH into the playground first - otherwise, the IDE may fail to connect for some reason.
+		cmd := exec.Command("ssh",
+			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "IdentitiesOnly=yes",
+			"-o", "PreferredAuthentications=publickey",
+			"-i", cli.Config().SSHIdentityFile,
+			fmt.Sprintf("ssh://%s@%s:%s", opts.User, localHost, localPort),
+		)
+		cmd.Run()
+
+		cmd = exec.Command("zed",
+			fmt.Sprintf("ssh://%s@%s:%s%s", opts.User, localHost, localPort, userHomeDir(opts.User)),
+		)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("couldn't open Zed: %w", err)
+		}
 	} else if opts.IDE != "" {
 		cli.PrintErr("Unsupported IDE (skipping IDE connection): %q\n", opts.IDE)
 	}
@@ -219,6 +240,10 @@ func RunSSHProxy(ctx context.Context, cli labcli.CLI, opts *Options) error {
 
 		cli.PrintAux("# To access the playground in Cursor:\n")
 		cli.PrintAux("cursor --folder-uri vscode-remote://ssh-remote+%s@%s:%s%s\n\n",
+			opts.User, localHost, localPort, userHomeDir(opts.User))
+
+		cli.PrintAux("# To access the playground in Zed:\n")
+		cli.PrintAux("zed ssh://%s@%s:%s%s\n\n",
 			opts.User, localHost, localPort, userHomeDir(opts.User))
 
 		cli.PrintAux("\nPress Ctrl+C to stop\n")
